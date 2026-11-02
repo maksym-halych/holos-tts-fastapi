@@ -3,9 +3,10 @@ from collections.abc import AsyncIterator
 import numpy as np
 import pytest
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.testclient import TestClient
 
-from holos_tts_fastapi.api import get_engine, router
+from holos_tts_fastapi.api import get_engine, router, validation_error_handler
 from holos_tts_fastapi.engine import UnknownVoiceError
 
 FAKE_VOICES = ["voice_a", "voice_b"]
@@ -35,6 +36,7 @@ class FakeEngine:
 def make_client(engine: FakeEngine) -> TestClient:
     app = FastAPI()
     app.state.engine = engine
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.include_router(router)
     app.dependency_overrides[get_engine] = lambda: engine
     return TestClient(app)
@@ -100,13 +102,30 @@ def test_unsupported_format_is_rejected():
     assert resp.status_code == 422
 
 
-def test_non_positive_speed_is_rejected():
+@pytest.mark.parametrize("speed", [0, -1, 0.24, 4.01, 100])
+def test_out_of_range_speed_is_rejected(speed):
     client = make_client(FakeEngine())
-    resp = client.post("/v1/audio/speech", json={"input": "Привіт", "speed": 0})
+    resp = client.post("/v1/audio/speech", json={"input": "Привіт", "speed": speed})
     assert resp.status_code == 422
+    assert "speed" in resp.text
 
-    resp = client.post("/v1/audio/speech", json={"input": "Привіт", "speed": -1})
+
+@pytest.mark.parametrize("raw_speed", ["1e999", "NaN", "Infinity"])
+def test_non_finite_speed_is_rejected(raw_speed):
+    client = make_client(FakeEngine())
+    body = '{"input": "Привіт", "speed": ' + raw_speed + "}"
+    resp = client.post("/v1/audio/speech", content=body, headers={"content-type": "application/json"})
     assert resp.status_code == 422
+    assert resp.json()["detail"][0]["loc"] == ["body", "speed"]
+
+
+@pytest.mark.parametrize("speed", [0.25, 1.0, 4.0])
+def test_speed_range_limits_are_accepted(speed):
+    engine = FakeEngine()
+    client = make_client(engine)
+    resp = client.post("/v1/audio/speech", json={"input": "Привіт", "speed": speed, "response_format": "pcm"})
+    assert resp.status_code == 200
+    assert engine.calls[-1][2] == speed
 
 
 def test_unknown_voice_is_rejected_with_valid_names_listed():

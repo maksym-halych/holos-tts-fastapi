@@ -21,12 +21,15 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # 3. Model weights layer: baked in at build time so the container needs no
 # network access at runtime. Placed before the source copy so editing
-# application code does not re-trigger a 541MB download. voice_encoder.pt
+# application code does not re-trigger a 542MB download. voice_encoder.pt
 # is deliberately not downloaded (voice cloning is out of scope).
+# The checkpoint must match the model architecture in the holos-tts package,
+# so bump this revision and the holos-tts pin in pyproject.toml together.
+ARG HOLOS_WEIGHTS_REVISION=f4ab024ff5798b07c921dbf16e044c184b19103e
 RUN python -c "\
 from huggingface_hub import hf_hub_download; \
-hf_hub_download(repo_id='patriotyk/HolosTTS', filename='holos.pt', local_dir='/app/weights'); \
-hf_hub_download(repo_id='patriotyk/HolosTTS', filename='voices.pt', local_dir='/app/weights')"
+hf_hub_download(repo_id='patriotyk/HolosTTS', filename='holos.pt', revision='${HOLOS_WEIGHTS_REVISION}', local_dir='/app/weights'); \
+hf_hub_download(repo_id='patriotyk/HolosTTS', filename='voices.pt', revision='${HOLOS_WEIGHTS_REVISION}', local_dir='/app/weights')"
 
 # The Ukrainian word-stress dictionary (ukrainian-word-stress) constructs a
 # stanza NLP pipeline that otherwise downloads its Ukrainian model files from

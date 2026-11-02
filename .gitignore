@@ -58,3 +58,5 @@ dist/
 openspec/
 
 # === Project Specific ===
+
+weights/

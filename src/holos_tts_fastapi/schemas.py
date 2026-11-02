@@ -6,6 +6,12 @@ from holos_tts_fastapi.audio import SUPPORTED_FORMATS
 
 ResponseFormat = Literal["mp3", "wav", "opus", "flac", "aac", "pcm"]
 
+# Same range as the OpenAI speech API. The model divides predicted durations by
+# speed and rounds them with no lower bound, so much higher values collapse
+# whole sentences to zero frames, which it rejects.
+MIN_SPEED = 0.25
+MAX_SPEED = 4.0
+
 
 class SpeechRequest(BaseModel):
     model_config = {"protected_namespaces": ()}
@@ -26,9 +32,9 @@ class SpeechRequest(BaseModel):
 
     @field_validator("speed")
     @classmethod
-    def speed_must_be_positive(cls, value: float) -> float:
-        if value <= 0:
-            raise ValueError("speed must be a positive number")
+    def speed_must_be_in_range(cls, value: float) -> float:
+        if not MIN_SPEED <= value <= MAX_SPEED:
+            raise ValueError(f"speed must be between {MIN_SPEED} and {MAX_SPEED}")
         return value
 
     @field_validator("response_format")

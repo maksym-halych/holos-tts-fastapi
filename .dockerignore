@@ -6,3 +6,4 @@ __pycache__
 openspec
 .claude
 tests
+weights

@@ -2,7 +2,7 @@
 
 An OpenAI-compatible speech synthesis HTTP API for [HolosTTS](https://github.com/patriotyk/HolosTTS), a Ukrainian text-to-speech model. Point an unmodified OpenAI SDK client at this server and get Ukrainian speech back.
 
-This project wraps the [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) service shape (`POST /v1/audio/speech`, `GET /v1/audio/voices`, streaming, six output formats) around the HolosTTS checkpoint, and lifts the Ukrainian text→IPA frontend out of HolosTTS's Gradio demo into a first-class module.
+This project wraps the [Kokoro-FastAPI](https://github.com/remsky/Kokoro-FastAPI) service shape (`POST /v1/audio/speech`, `GET /v1/audio/voices`, streaming, six output formats) around the HolosTTS checkpoint, and lifts the Ukrainian text→IPA frontend out of HolosTTS's Gradio demo into a first-class module. The model itself comes from the [`holos-tts`](https://pypi.org/project/holos-tts/) package on PyPI.
 
 ## Quickstart
 
@@ -19,12 +19,13 @@ The image bakes in the model weights at build time, so the container needs no ne
 
 ```bash
 uv sync
-export HOLOS_WEIGHTS_PATH=/path/to/holos.pt
-export HOLOS_VOICES_PATH=/path/to/voices.pt
+uv run hf download patriotyk/HolosTTS holos.pt voices.pt --revision f4ab024ff5798b07c921dbf16e044c184b19103e --local-dir weights
+export HOLOS_WEIGHTS_PATH=$PWD/weights/holos.pt
+export HOLOS_VOICES_PATH=$PWD/weights/voices.pt
 uv run uvicorn holos_tts_fastapi.api:app --host 0.0.0.0 --port 8000
 ```
 
-Weights can be downloaded from [huggingface.co/patriotyk/HolosTTS](https://huggingface.co/patriotyk/HolosTTS) (`holos.pt`, `voices.pt`; skip `voice_encoder.pt`, it's not used).
+The `--revision` matters: the checkpoint has to match the model architecture in the installed `holos-tts` version, and newer weights on [huggingface.co/patriotyk/HolosTTS](https://huggingface.co/patriotyk/HolosTTS) may fail to load. `voice_encoder.pt` isn't used, so it isn't downloaded.
 
 ### Try it with the OpenAI SDK
 
@@ -53,7 +54,7 @@ Synthesizes speech from text. Request body:
 | `model`           | string  | —       | Accepted and ignored (exactly one model is served).               |
 | `voice`           | string  | server default | A HolosTTS preset name from `GET /v1/audio/voices`.        |
 | `response_format` | string  | `mp3`   | One of `mp3`, `wav`, `opus`, `flac`, `aac`, `pcm`.                 |
-| `speed`           | number  | `1.0`   | Must be positive. `>1.0` is faster, `<1.0` is slower.              |
+| `speed`           | number  | `1.0`   | From `0.25` to `4.0`. `>1.0` is faster, `<1.0` is slower.          |
 | `stream`          | boolean | `true`  | If `false`, returns the complete audio as one buffered response.  |
 
 Response body is raw audio bytes with `Content-Type` matching `response_format` (`audio/mpeg`, `audio/wav`, `audio/opus`, `audio/flac`, `audio/aac`, `audio/pcm`).
@@ -92,7 +93,12 @@ Startup fails fast with a clear error if the configured weights/voices path does
 - **CPU only.** The shipped image installs CPU-only PyTorch wheels; GPU inference is not wired up.
 - **No auth, rate limiting, or quotas.** Designed for a single trusted client on a private network.
 - **FLAC streaming has a metadata caveat.** When streamed, FLAC's header cannot declare total sample count or an MD5 checksum (unknown until the stream ends). Most decoders handle this fine; buffered (`stream: false`) FLAC does not have this limitation issue since the header is still written with unknown-length placeholders regardless — use `wav` or `pcm` if exact-length FLAC metadata matters.
-- **Streaming granularity is per sentence-group,** not per word — the model is non-autoregressive and produces a complete waveform per chunk, so time-to-first-byte is bounded below by one chunk's synthesis time.
+- **Very short chunks may ignore high `speed`.** Near `4.0`, a chunk of a single consonant or only punctuation can round to no audio on some voices, so that chunk is synthesized at `1.0` instead.
+- **Streaming granularity is per sentence-group,** not per word — the server synthesizes a complete waveform per chunk, so time-to-first-byte is bounded below by one chunk's synthesis time.
+
+## Licensing
+
+HolosTTS code and weights are MIT-licensed. Its author notes that the preset voices were used without their owners' consent, so commercial use requires agreement with the voice owners. Upstream's other options, cloned or mixed voices, aren't available through this server. See [upstream's license notes](https://github.com/patriotyk/HolosTTS#license).
 
 ## Development
 
@@ -101,4 +107,15 @@ uv sync
 uv run pytest
 ```
 
-Text frontend tests (`tests/test_frontend.py`) and API contract tests (`tests/test_api.py`) run without model weights. End-to-end synthesis requires `HOLOS_WEIGHTS_PATH`/`HOLOS_VOICES_PATH` pointing at real files.
+Text frontend tests (`tests/test_frontend.py`) and API contract tests (`tests/test_api.py`) run without model weights. Real-model tests (`tests/test_model_integration.py`) are skipped unless `HOLOS_WEIGHTS_PATH`/`HOLOS_VOICES_PATH` point at real files.
+
+CI runs the tests, then builds the image and runs `scripts/smoke_test_image.sh` before pushing. The script boots the image with no network access and synthesizes speech in every format, which is what proves the baked-in checkpoint loads.
+
+### Updating the model
+
+The `holos-tts` version and the Hugging Face weights revision have to move together. To update:
+
+1. Bump `holos-tts` in `pyproject.toml` and run `uv lock`.
+2. Update `HOLOS_WEIGHTS_REVISION` in the `Dockerfile` and the `--revision` in the Quickstart above.
+3. Download those weights and run `uv run pytest` with `HOLOS_WEIGHTS_PATH`/`HOLOS_VOICES_PATH` set.
+4. Re-measure chunk peaks against `FIXED_SCALE` in `src/holos_tts_fastapi/audio.py`, since new weights can change output levels.

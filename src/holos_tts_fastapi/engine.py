@@ -3,10 +3,10 @@ import logging
 from collections.abc import AsyncIterator
 
 import numpy as np
+from holos.models import HolosTTS
 
 from holos_tts_fastapi.config import Settings
 from holos_tts_fastapi.frontend import text_to_ipa_chunks
-from holos_tts_fastapi.nn.models import HolosTTS
 
 logger = logging.getLogger(__name__)
 
@@ -60,5 +60,14 @@ class SynthesisEngine:
 
     def _generate_one(self, ipa_chunk: str, voice: str, speed: float) -> np.ndarray:
         assert self._model is not None
-        wav = self._model.generate(ipa_chunk, voice, speed)
+        try:
+            wav = self._model.generate(ipa_chunk, voice, speed)
+        except RuntimeError:
+            if speed <= 1.0:
+                raise
+            # The model rounds durations with no lower bound, so a very short
+            # chunk at high speed can collapse to zero frames, which its
+            # convolutions reject. A real failure fails again here and propagates.
+            logger.warning("Chunk %r failed at speed %s, retrying at normal speed", ipa_chunk, speed)
+            wav = self._model.generate(ipa_chunk, voice, 1.0)
         return wav.cpu().numpy().reshape(-1)

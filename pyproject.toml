@@ -13,13 +13,12 @@ dependencies = [
     "pydantic>=2.7",
     "pydantic-settings>=2.4",
     "numpy>=1.26",
-    "scipy>=1.13",
-    "soundfile>=0.12",
-    "librosa>=0.10",
-    "transformers>=4.44",
     "huggingface-hub>=0.24",
     "torch>=2.3",
     "torchaudio>=2.3",
+    # Bump together with HOLOS_WEIGHTS_REVISION in the Dockerfile: the checkpoint
+    # must match the model architecture in this package.
+    "holos-tts==0.4",
     "ipa-uk",
     "ukrainian-word-stress",
 ]

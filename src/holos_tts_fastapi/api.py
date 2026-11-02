@@ -2,7 +2,9 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 
 from holos_tts_fastapi.audio import MEDIA_TYPES, encode_buffered, encode_stream, pcm16_bytes, to_pcm16
 from holos_tts_fastapi.config import settings
@@ -78,6 +80,13 @@ async def create_speech(
     return StreamingResponse(byte_stream(), media_type=media_type)
 
 
+async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    # FastAPI's default handler echoes each invalid value, which turns a NaN or
+    # infinite speed into a 500 because JSON cannot encode those numbers.
+    errors = [{key: value for key, value in error.items() if key != "input"} for error in exc.errors()]
+    return JSONResponse(status_code=422, content={"detail": jsonable_encoder(errors)})
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings.validate_startup()
@@ -88,6 +97,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Holos TTS", lifespan=lifespan)
     app.state.engine = SynthesisEngine(settings)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.include_router(router)
     return app
 

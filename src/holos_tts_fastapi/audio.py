@@ -14,10 +14,10 @@ BYTES_PER_SAMPLE = BITS_PER_SAMPLE // 8
 
 # Fixed scale applied to the model's float waveform before int16 conversion.
 # Chosen (rather than per-chunk peak normalization) so loudness stays
-# consistent across streamed chunks; see design.md for rationale. Measured
-# chunk peaks across varied Ukrainian sentences cluster around 0.3-0.45, so
-# 50000 leaves headroom to ~0.65 before clipping while staying comfortably
-# audible.
+# consistent across streamed chunks; see design.md for rationale. Chunk peaks
+# across varied Ukrainian sentences and all 27 presets measure 0.28-0.59 with
+# the pinned weights (median 0.43), so 50000 leaves headroom to ~0.65 before
+# clipping while staying comfortably audible. Re-measure when the weights change.
 FIXED_SCALE = 50000.0
 
 MEDIA_TYPES = {
